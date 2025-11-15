@@ -1,5 +1,4 @@
-name: Build Package taro
-
+name: Build Package
 on:
   workflow_dispatch:
     inputs:
@@ -15,58 +14,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Manually Install Docker
-      - name: Set up Ubuntu and Docker
+      # Step 2: Set up Docker (optional - Ubuntu runners already have Docker)
+      - name: Verify Docker installation
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-              ca-certificates \
-              curl \
-              gnupg \
-              lsb-release
+          docker --version
+          sudo systemctl start docker
+          sudo systemctl status docker
 
-          # Add Docker’s official GPG key
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-          # Set up the repository
-          echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-          # Install Docker Engine and plugins
-          sudo apt-get update
-          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-          # Verify Docker installation and check service status
-          sudo docker --version
-          sudo systemctl status docker --no-pager
-
-      # Step 3: (Optional) Configure Docker Daemon or finalize setup
-      # Removed invalid 'docker-run-args'. If daemon config is needed:
-      # - name: Configure Docker Daemon (example)
-      #   uses: docker/setup-docker-action@v3
-      #   with:
-      #     daemon-config: '{"log-driver": "json-file", "log-opts": {"max-size": "10m"}}'
-      # For now, this step is just a placeholder or can be removed if not configuring the daemon.
-      # If DinD is needed later, it should be started manually.
-      - name: Finalize Docker Setup (No Args)
-        uses: docker/setup-docker-action@v3
-        # No 'with:' block needed if just finalizing or using daemon-config
-
-      # Step 4: Start QEMU user static (for multi-arch support if needed)
-      - name: Start QEMU user static
-        run: |
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
-      # Step 5: Set up Android SDK inside Docker
-      # This step assumes your script ./scripts/run-docker.sh correctly runs commands inside a container
-      # and that the Docker daemon started in Step 2 is available for it.
+      # Step 3: Set up Android SDK inside Docker
       - name: Set up Android SDK
         run: |
           sudo ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
 
-      # Step 6: Install Python 3.11 inside Docker
+      # Step 4: Start QEMU user static
+      - name: Start QEMU user static
+        run: |
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      # Step 5: Install Python 3.11
       - name: Install Python
         run: |
           sudo ./scripts/run-docker.sh bash -c "
@@ -78,27 +43,25 @@ jobs:
             python3.11 --version
           "
 
-      # Step 7: Build the package
+      # Step 6: Build the package
       - name: Build package
         run: |
           sudo ./scripts/run-docker.sh ./build-package.sh -a aarch64 ${{ github.event.inputs.package_name }}
 
-      # Step 8: Sanitize filenames in the output directory
+      # Step 7: Sanitize filenames in the output directory
       - name: Sanitize filenames
         if: success()
         run: |
           cd output
           for file in *; do
             # Replace invalid characters with underscores
-            new_name=$(echo "$file" | tr ':<>|*?\"' '_')
-            # Handle carriage return and newline explicitly if needed in filenames
-            new_name=$(echo "$new_name" | tr '\r\n' '__')
+            new_name=$(echo "$file" | tr ':<>|*?"\r\n' '_')
             if [ "$file" != "$new_name" ]; then
               mv "$file" "$new_name"
             fi
           done
 
-      # Step 9: Upload built artifacts (if the build succeeded)
+      # Step 8: Upload built artifacts
       - name: Upload artifacts
         if: success()
         uses: actions/upload-artifact@v4
