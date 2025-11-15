@@ -1,4 +1,4 @@
-name: Build Package
+name: Build Package Tari
 on:
   workflow_dispatch:
     inputs:
