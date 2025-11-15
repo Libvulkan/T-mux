@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Ubuntu and Docker
+      # Step 2: Manually Install Docker
       - name: Set up Ubuntu and Docker
         run: |
           sudo apt-get update
@@ -25,38 +25,48 @@ jobs:
               gnupg \
               lsb-release
 
-          # Add Docker’s GPG key
+          # Add Docker’s official GPG key
           sudo mkdir -p /etc/apt/keyrings
           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
-          # Add Docker’s repository
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          # Set up the repository
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-          # Install Docker
+          # Install Docker Engine and plugins
           sudo apt-get update
           sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-          # Verify Docker installation
+          # Verify Docker installation and check service status
           sudo docker --version
-          sudo systemctl status docker
+          sudo systemctl status docker --no-pager
 
-      # Step 3: Set up Docker inside Docker (DinD)
-      - name: Set up Docker inside Docker
+      # Step 3: (Optional) Configure Docker Daemon or finalize setup
+      # Removed invalid 'docker-run-args'. If daemon config is needed:
+      # - name: Configure Docker Daemon (example)
+      #   uses: docker/setup-docker-action@v3
+      #   with:
+      #     daemon-config: '{"log-driver": "json-file", "log-opts": {"max-size": "10m"}}'
+      # For now, this step is just a placeholder or can be removed if not configuring the daemon.
+      # If DinD is needed later, it should be started manually.
+      - name: Finalize Docker Setup (No Args)
         uses: docker/setup-docker-action@v3
-        with:
-          docker-run-args: --privileged
+        # No 'with:' block needed if just finalizing or using daemon-config
 
-      # Step 4: Set up Android SDK inside Docker
-      - name: Set up Android SDK
-        run: |
-          sudo ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-
-      # Step 5: Start QEMU user static
+      # Step 4: Start QEMU user static (for multi-arch support if needed)
       - name: Start QEMU user static
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      # Step 6: Install Python 3.11
+      # Step 5: Set up Android SDK inside Docker
+      # This step assumes your script ./scripts/run-docker.sh correctly runs commands inside a container
+      # and that the Docker daemon started in Step 2 is available for it.
+      - name: Set up Android SDK
+        run: |
+          sudo ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
+
+      # Step 6: Install Python 3.11 inside Docker
       - name: Install Python
         run: |
           sudo ./scripts/run-docker.sh bash -c "
@@ -80,7 +90,9 @@ jobs:
           cd output
           for file in *; do
             # Replace invalid characters with underscores
-            new_name=$(echo "$file" | tr ':<>|*?"\r\n' '_')
+            new_name=$(echo "$file" | tr ':<>|*?\"' '_')
+            # Handle carriage return and newline explicitly if needed in filenames
+            new_name=$(echo "$new_name" | tr '\r\n' '__')
             if [ "$file" != "$new_name" ]; then
               mv "$file" "$new_name"
             fi
